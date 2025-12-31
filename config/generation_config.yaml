@@ -1,0 +1,14 @@
+generation:
+  difficulty_target: 0.5
+  guidance_scale: 3.0
+  num_levels: 1
+  patches_per_level: 1
+  temperature: 0.5
+models:
+  autoencoder_path: checkpoints/autoencoder.pth
+  diffusion_path: checkpoints/diffusion_best.pth
+  normalizer_path: checkpoints/latent_normalizer.pth
+output:
+  directory: output/generated_levels
+  format: txt
+  visualize: true
