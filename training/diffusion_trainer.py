@@ -50,27 +50,27 @@ class DiffusionTrainer:
         """Single training step."""
         self.unet.train()
 
-        current_latent, prev_latents, curr_play, prev_play = batch_data
+        current_latent, prev_latents, curr_diff, prev_diff = batch_data
         current_latent = current_latent.to(self.device).float()
         prev_latents = prev_latents.to(self.device).float()
-        curr_play = curr_play.to(self.device).float()
-        prev_play = prev_play.to(self.device).float()
+        curr_diff = curr_diff.to(self.device).float()
+        prev_diff = prev_diff.to(self.device).float()
 
         batch_size = current_latent.shape[0]
         timesteps = self.forward.sample_timesteps(batch_size).to(self.device).long()
 
         noisy_latent, noise = self.forward.add_noise(current_latent, timesteps)
 
-        if curr_play.dim() == 2:
-            target_diff = curr_play.squeeze(1)
+        if curr_diff.dim() == 2:
+            target_diff = curr_diff.squeeze(1)
         else:
-            target_diff = curr_play
+            target_diff = curr_diff
 
         predicted_noise = self.unet(
             x=noisy_latent,
             timesteps=timesteps,
             previous_latents=prev_latents,
-            previous_playabilities=prev_play,
+            previous_difficulties=prev_diff,
             target_difficulty=target_diff
         )
 
@@ -90,26 +90,26 @@ class DiffusionTrainer:
 
         with torch.no_grad():
             for batch_data in val_loader:
-                current_latent, prev_latents, curr_play, prev_play = batch_data
+                current_latent, prev_latents, curr_diff, prev_diff = batch_data
                 current_latent = current_latent.to(self.device).float()
                 prev_latents = prev_latents.to(self.device).float()
-                curr_play = curr_play.to(self.device).float()
-                prev_play = prev_play.to(self.device).float()
+                curr_diff = curr_diff.to(self.device).float()
+                prev_diff = prev_diff.to(self.device).float()
 
                 batch_size = current_latent.shape[0]
                 timesteps = self.forward.sample_timesteps(batch_size).to(self.device).long()
                 noisy_latents, noise = self.forward.add_noise(current_latent, timesteps)
 
-                if curr_play.dim() == 2:
-                    target_diff = curr_play.squeeze(1)
+                if curr_diff.dim() == 2:
+                    target_diff = curr_diff.squeeze(1)
                 else:
-                    target_diff = curr_play
+                    target_diff = curr_diff
 
                 predicted_noise = self.unet(
                     x=noisy_latents,
                     timesteps=timesteps,
                     previous_latents=prev_latents,
-                    previous_playabilities=prev_play,
+                    previous_difficulties=prev_diff,
                     target_difficulty=target_diff
                 )
 

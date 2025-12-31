@@ -59,7 +59,7 @@ class DiffusionUNet(nn.Module):
         self.latent_dim = latent_dim
         self.time_emb_dim = time_emb_dim
         self.context_emb_dim = context_emb_dim
-        self.prev_play_emb_dim = 64
+        self.prev_diff_emb_dim = 64
         self.hidden_dims = hidden_dims
         self.num_res_blocks = num_res_blocks
         self.cond_dropout = cond_dropout
@@ -80,16 +80,16 @@ class DiffusionUNet(nn.Module):
         )
 
         self.prev_difficulty_mlp = nn.Sequential(
-            nn.Linear(1, self.prev_play_emb_dim),
+            nn.Linear(1, self.prev_diff_emb_dim),
             nn.SiLU(),
-            nn.Linear(self.prev_play_emb_dim, time_emb_dim)
+            nn.Linear(self.prev_diff_emb_dim, time_emb_dim)
         )
 
         self.difficulty_embedding = FourierDifficultyEmbedding(
             embedding_dim=time_emb_dim,
             num_frequencies=64
         )
-        self.null_play_embedding = nn.Parameter(torch.randn(time_emb_dim) * 0.02)
+        self.null_diff_embedding = nn.Parameter(torch.randn(time_emb_dim) * 0.02)
 
         self.input_proj = nn.Linear(latent_dim * 2, hidden_dims[0])
 
@@ -156,7 +156,7 @@ class DiffusionUNet(nn.Module):
         x: torch.Tensor,
         timesteps: torch.Tensor,
         previous_latents: Optional[torch.Tensor] = None,
-        previous_playabilities: Optional[torch.Tensor] = None,
+        previous_difficulties: Optional[torch.Tensor] = None,
         target_difficulty: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
 
@@ -197,26 +197,26 @@ class DiffusionUNet(nn.Module):
         prev_enc = prev_enc.reshape(batch, inferred_k, -1)
         k = inferred_k
 
-        if previous_playabilities is None:
-            previous_playabilities = torch.zeros((batch, k), device=device, dtype=dtype)
+        if previous_difficulties is None:
+            previous_difficulties = torch.zeros((batch, k), device=device, dtype=dtype)
         else:
-            previous_playabilities = previous_playabilities.to(device=device, dtype=dtype)
-            if previous_playabilities.dim() == 2:
-                if previous_playabilities.shape[0] != batch or previous_playabilities.shape[1] != k:
-                    if previous_playabilities.numel() == batch * k:
-                        previous_playabilities = previous_playabilities.reshape(batch, k)
+            previous_difficulties = previous_difficulties.to(device=device, dtype=dtype)
+            if previous_difficulties.dim() == 2:
+                if previous_difficulties.shape[0] != batch or previous_difficulties.shape[1] != k:
+                    if previous_difficulties.numel() == batch * k:
+                        previous_difficulties = previous_difficulties.reshape(batch, k)
                     else:
-                        raise ValueError('previous_playabilities shape incompatible')
-            elif previous_playabilities.dim() == 1:
-                n = previous_playabilities.numel()
+                        raise ValueError('previous_difficulties shape incompatible')
+            elif previous_difficulties.dim() == 1:
+                n = previous_difficulties.numel()
                 if n == k:
-                    previous_playabilities = previous_playabilities.unsqueeze(0).repeat(batch, 1)
+                    previous_difficulties = previous_difficulties.unsqueeze(0).repeat(batch, 1)
                 elif n == batch * k:
-                    previous_playabilities = previous_playabilities.reshape(batch, k)
+                    previous_difficulties = previous_difficulties.reshape(batch, k)
                 else:
-                    raise ValueError('previous_playabilities length incompatible')
+                    raise ValueError('previous_difficulties length incompatible')
 
-        prev_play_flat = previous_playabilities.reshape(batch * k, 1)
+        prev_play_flat = previous_difficulties.reshape(batch * k, 1)
         prev_play_enc = self.prev_difficulty_mlp(prev_play_flat)
         prev_play_enc = prev_play_enc.reshape(batch, k, -1)
 
@@ -224,7 +224,7 @@ class DiffusionUNet(nn.Module):
         ctx_emb = per_prev.mean(dim=1)
 
         if target_difficulty is None:
-            play_emb = self.null_play_embedding.unsqueeze(0).expand(batch, -1)
+            diff_emb = self.null_diff_embedding.unsqueeze(0).expand(batch, -1)
         else:
             target_difficulty = target_difficulty.to(device=device, dtype=dtype)
             if target_difficulty.dim() == 0:
@@ -232,12 +232,12 @@ class DiffusionUNet(nn.Module):
             if target_difficulty.dim() == 1:
                 target_difficulty = target_difficulty.view(-1, 1)
 
-            play_emb = self.difficulty_embedding(target_difficulty)
+            diff_emb = self.difficulty_embedding(target_difficulty)
 
             if self.training and self.cond_dropout > 0:
                 drop_mask = (torch.rand(batch, device=device) < self.cond_dropout).unsqueeze(1)
-                null_emb = self.null_play_embedding.unsqueeze(0).expand(batch, -1)
-                play_emb = torch.where(drop_mask, null_emb, play_emb)
+                null_emb = self.null_diff_embedding.unsqueeze(0).expand(batch, -1)
+                diff_emb = torch.where(drop_mask, null_emb, diff_emb)
 
         if previous_latents.dim() == 2:
             prev_lat_for_mean = prev_flat.reshape(batch, k, self.latent_dim)
@@ -248,7 +248,7 @@ class DiffusionUNet(nn.Module):
         h = torch.cat([x, prev_lat_mean], dim=-1)
         h = self.input_proj(h)
 
-        combined_emb = t_emb + ctx_emb + play_emb
+        combined_emb = t_emb + ctx_emb + diff_emb
 
         skip_connections = []
         block_idx = 0
