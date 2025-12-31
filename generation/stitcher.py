@@ -65,14 +65,14 @@ class PatchStitcher:
                               difficulty_evaluator,
                               guidance_scales: List[float] = [0.0, 1.0, 2.0, 3.0, 5.0, 7.0],
                               num_patches: int = 10,
-                              target_playability: float = 0.8,
+                              target_difficulty: float = 0.8,
                               temperature: float = 0.5,
                               device: str = 'cuda',
                               save_path: Optional[str] = None) -> Dict:
         print(f"\n{'='*70}")
         print(f"CFG CONDITIONAL VS UNCONDITIONAL COMPARISON")
         print(f"{'='*70}")
-        print(f"Target Playability: {target_playability}")
+        print(f"Target difficulty: {target_difficulty}")
         print(f"Guidance Scales: {guidance_scales}")
         print(f"Patches per condition: {num_patches}")
         print(f"{'='*70}\n")
@@ -81,7 +81,7 @@ class PatchStitcher:
         latents_uncond = sampler.sample_level(
             num_patches=num_patches,
             normalizer=normalizer,
-            difficulty_target=target_playability,
+            difficulty_target=target_difficulty,
             temperature=temperature,
             guidance_scale=0.0,
             show_progress=False
@@ -138,7 +138,7 @@ class PatchStitcher:
             latents_cond = sampler.sample_level(
                 num_patches=num_patches,
                 normalizer=normalizer,
-                difficulty_target=target_playability,
+                difficulty_target=target_difficulty,
                 temperature=temperature,
                 guidance_scale=scale,
                 show_progress=False
@@ -206,7 +206,7 @@ class PatchStitcher:
 
         print("="*70)
 
-        print("\nStep 3: Testing if different playability targets produce different outputs...")
+        print("\nStep 3: Testing if different difficulty targets produce different outputs...")
         if len(conditional_scales) >= 2:
             scale_test = conditional_scales[0]
             diff_low_high = abs(
@@ -222,7 +222,7 @@ class PatchStitcher:
             with open(save_path, 'w') as f:
                 f.write("CONDITIONAL VS UNCONDITIONAL COMPARISON\n")
                 f.write("="*70 + "\n")
-                f.write(f"Target Playability: {target_playability}\n")
+                f.write(f"Target difficulty: {target_difficulty}\n")
                 f.write(f"Patches per condition: {num_patches}\n\n")
 
                 f.write(f"{'Scale':<10} {'Uncond':<12} {'Cond':<12} {'Δ':<12} {'%Change':<12}\n")
@@ -242,7 +242,7 @@ class PatchStitcher:
                                       autoencoder,
                                       parser,
                                       difficulty_evaluator,
-                                      target_playabilities: List[float] = [0.2, 0.4, 0.6, 0.8, 1.0],
+                                      target_difficulties: List[float] = [0.2, 0.4, 0.6, 0.8, 1.0],
                                       num_samples_per_target: int = 5,
                                       guidance_scale: float = 3.0,
                                       temperature: float = 0.5,
@@ -252,13 +252,13 @@ class PatchStitcher:
         print(f"\n{'='*70}")
         print(f"DIFFICULTY EVALUATION COMPARISON")
         print(f"{'='*70}")
-        print(f"Target Playabilities: {target_playabilities}")
+        print(f"Target difficulties: {target_difficulties}")
         print(f"Samples per target: {num_samples_per_target}")
         print(f"Guidance Scale: {guidance_scale}")
         print(f"{'='*70}\n")
 
         results = {
-            'target_playabilities': target_playabilities,
+            'target_difficulties': target_difficulties,
             'evaluations': [],
             'summary': {}
         }
@@ -266,8 +266,8 @@ class PatchStitcher:
         all_targets = []
         all_actual_scores = []
 
-        for target_play in target_playabilities:
-            print(f"\nGenerating {num_samples_per_target} patches with target playability = {target_play}...")
+        for target_diff in target_difficulties:
+            print(f"\nGenerating {num_samples_per_target} patches with target difficulty = {target_diff}...")
 
             target_scores = []
             actual_scores = []
@@ -277,8 +277,8 @@ class PatchStitcher:
                 latent = sampler.sample_single_patch(
                     normalizer=normalizer,
                     previous_latent=None,
-                    target_playability=target_play,
-                    previous_playabilities=None,
+                    target_difficulty=target_diff,
+                    previous_difficulties=None,
                     temperature=temperature,
                     guidance_scale=guidance_scale,
                     show_progress=False
@@ -304,20 +304,20 @@ class PatchStitcher:
 
                 eval_result = difficulty_evaluator.evaluate_patch(
                     patch,
-                    metadata={'target_playability': target_play, 'sample_idx': sample_idx}
+                    metadata={'target_difficulty': target_diff, 'sample_idx': sample_idx}
                 )
 
                 difficulty_score = eval_result['scores']['difficulty_score']
 
-                target_scores.append(target_play)
+                target_scores.append(target_diff)
                 actual_scores.append(difficulty_score)
                 patches_list.append(patch)
 
-                all_targets.append(target_play)
+                all_targets.append(target_diff)
                 all_actual_scores.append(difficulty_score)
 
                 results['evaluations'].append({
-                    'target_playability': target_play,
+                    'target_difficulty': target_diff,
                     'actual_difficulty': difficulty_score,
                     'sample_idx': sample_idx,
                     'patch': patch,
@@ -327,17 +327,17 @@ class PatchStitcher:
             mean_actual = np.mean(actual_scores)
             std_actual = np.std(actual_scores)
 
-            results['summary'][target_play] = {
+            results['summary'][target_diff] = {
                 'mean_difficulty': mean_actual,
                 'std_difficulty': std_actual,
-                'target_playability': target_play,
-                'error': abs(mean_actual - target_play),
+                'target_difficulty': target_diff,
+                'error': abs(mean_actual - target_diff),
                 'samples': actual_scores
             }
 
-            print(f"  Target: {target_play:.2f} | "
+            print(f"  Target: {target_diff:.2f} | "
                   f"Actual Difficulty: {mean_actual:.3f} ± {std_actual:.3f} | "
-                  f"Error: {abs(mean_actual - target_play):.3f}")
+                  f"Error: {abs(mean_actual - target_diff):.3f}")
 
         fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
@@ -350,7 +350,7 @@ class PatchStitcher:
                     fmt='o', markersize=8, capsize=5, capthick=2,
                     label='Generated (Mean ± Std)', color='blue', alpha=0.7)
         ax1.plot([0, 1], [0, 1], 'r--', linewidth=2, label='Perfect Alignment', alpha=0.5)
-        ax1.set_xlabel('Target Playability', fontsize=12, fontweight='bold')
+        ax1.set_xlabel('Target difficulty', fontsize=12, fontweight='bold')
         ax1.set_ylabel('Actual Difficulty Score', fontsize=12, fontweight='bold')
         ax1.set_title('Target vs Actual Difficulty (Aggregated)', fontsize=14, fontweight='bold')
         ax1.legend(fontsize=10)
@@ -361,7 +361,7 @@ class PatchStitcher:
         ax2 = axes[0, 1]
         ax2.scatter(all_targets, all_actual_scores, alpha=0.5, s=50, color='green')
         ax2.plot([0, 1], [0, 1], 'r--', linewidth=2, label='Perfect Alignment', alpha=0.5)
-        ax2.set_xlabel('Target Playability', fontsize=12, fontweight='bold')
+        ax2.set_xlabel('Target difficulty', fontsize=12, fontweight='bold')
         ax2.set_ylabel('Actual Difficulty Score', fontsize=12, fontweight='bold')
         ax2.set_title('All Individual Samples', fontsize=14, fontweight='bold')
         ax2.legend(fontsize=10)
@@ -374,7 +374,7 @@ class PatchStitcher:
         ax3.bar(range(len(target_vals)), errors, color='orange', alpha=0.7, edgecolor='black')
         ax3.set_xticks(range(len(target_vals)))
         ax3.set_xticklabels([f'{t:.1f}' for t in target_vals])
-        ax3.set_xlabel('Target Playability', fontsize=12, fontweight='bold')
+        ax3.set_xlabel('Target difficulty', fontsize=12, fontweight='bold')
         ax3.set_ylabel('Absolute Error', fontsize=12, fontweight='bold')
         ax3.set_title('Prediction Error by Target', fontsize=14, fontweight='bold')
         ax3.grid(True, axis='y', alpha=0.3)
@@ -389,7 +389,7 @@ class PatchStitcher:
                 linewidth=2, markersize=8, label='Target', alpha=0.7)
         ax4.set_xticks(range(len(target_vals)))
         ax4.set_xticklabels([f'{t:.1f}' for t in target_vals])
-        ax4.set_xlabel('Target Playability', fontsize=12, fontweight='bold')
+        ax4.set_xlabel('Target difficulty', fontsize=12, fontweight='bold')
         ax4.set_ylabel('Difficulty Score Distribution', fontsize=12, fontweight='bold')
         ax4.set_title('Distribution of Generated Difficulties', fontsize=14, fontweight='bold')
         ax4.legend(fontsize=10)

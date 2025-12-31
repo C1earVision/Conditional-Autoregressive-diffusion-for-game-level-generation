@@ -27,7 +27,7 @@ The system uses **Classifier-Free Guidance (CFG)** to enable control over the di
 ├── models/                  # Neural network architectures
 │   ├── autoencoder.py       # Patch encoder/decoder
 │   ├── diffusion.py         # Diffusion U-Net with CFG
-│   ├── embeddings.py        # Time/playability embeddings
+│   ├── embeddings.py        # Time/difficulty embeddings
 │   ├── noise_scheduler.py   # Diffusion noise schedule
 │   └── latent_normalizer.py # Latent space normalization
 ├── training/                # Training modules

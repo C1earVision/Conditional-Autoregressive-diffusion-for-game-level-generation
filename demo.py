@@ -173,7 +173,7 @@ class LevelGeneratorApp:
         self.image_label.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
     
     def create_slider(self, parent, label, info, variable, min_val, max_val, step, is_int=False):
-        """Create a labeled slider with value display."""
+        """Create a labeled slider with value disdiff."""
         frame = ttk.Frame(parent)
         frame.pack(fill=tk.X, pady=(0, 15))
         
@@ -317,7 +317,7 @@ class LevelGeneratorApp:
             image_path = self.get_latest_level_image()
             
             if image_path:
-                self.root.after(0, lambda: self.display_image(image_path))
+                self.root.after(0, lambda: self.disdiff_image(image_path))
                 status = f"✓ Generated! Difficulty: {self.difficulty_var.get():.2f} | Temp: {self.temperature_var.get():.2f}"
                 self.root.after(0, lambda: self.status_var.set(status))
             else:
@@ -335,8 +335,8 @@ class LevelGeneratorApp:
         finally:
             self.root.after(0, lambda: self.generate_btn.config(state=tk.NORMAL))
     
-    def display_image(self, image_path):
-        """Display the generated level image."""
+    def disdiff_image(self, image_path):
+        """Disdiff the generated level image."""
         try:
             img = Image.open(image_path)
             

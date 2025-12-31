@@ -63,7 +63,7 @@ class Sampler:
         normalizer,
         previous_latent: Optional[torch.Tensor],
         target_difficulty: float,
-        previous_playabilities: Optional[list] = None,
+        previous_difficulties: Optional[list] = None,
         temperature: float = 0.9,
         guidance_scale: float = 3.0,
         show_progress: bool = False
@@ -75,19 +75,19 @@ class Sampler:
         x = torch.randn(1, latent_dim, device=device) * temperature
         x = x / (x.norm(dim=-1, keepdim=True) + 1e-12) * normalizer.target_norm
 
-        target_play_tensor = torch.tensor([target_difficulty], device=device, dtype=torch.float32)
+        target_diff_tensor = torch.tensor([target_difficulty], device=device, dtype=torch.float32)
 
         if previous_latent is None:
             prev_lat = torch.zeros((1, 1, latent_dim), device=device)
-            prev_play = torch.zeros((1, 1), device=device)
+            prev_diff = torch.zeros((1, 1), device=device)
         else:
             if previous_latent.dim() == 1:
                 previous_latent = previous_latent.unsqueeze(0)
             prev_lat = previous_latent.unsqueeze(0).to(device)
-            if previous_playabilities is None:
-                prev_play = torch.zeros((1, prev_lat.shape[1]), device=device)
+            if previous_difficulties is None:
+                prev_diff = torch.zeros((1, prev_lat.shape[1]), device=device)
             else:
-                prev_play = torch.tensor(previous_playabilities, device=device).unsqueeze(0)
+                prev_diff = torch.tensor(previous_difficulties, device=device).unsqueeze(0)
 
         timesteps = range(self.schedule.num_timesteps - 1, -1, -1)
         if show_progress:
@@ -101,15 +101,15 @@ class Sampler:
                 x=x,
                 timesteps=t_batch,
                 previous_latents=prev_lat,
-                previous_playabilities=prev_play,
-                target_difficulty=target_play_tensor
+                previous_difficulties=prev_diff,
+                target_difficulty=target_diff_tensor
             )
 
             noise_uncond = self.unet(
                 x=x,
                 timesteps=t_batch,
                 previous_latents=prev_lat,
-                previous_playabilities=prev_play,
+                previous_difficulties=prev_diff,
                 target_difficulty=None
             )
 
@@ -134,7 +134,7 @@ class Sampler:
     ) -> torch.Tensor:
         generated = []
         prev_buffer = []
-        prev_play_buffer = []
+        prev_diff_buffer = []
 
         if isinstance(difficulty_target, (list, tuple)):
             difficulty_schedule = [float(p) for p in difficulty_target]
@@ -159,16 +159,16 @@ class Sampler:
         for i in iterator:
             if len(prev_buffer) == 0:
                 prev_lat = None
-                prev_play = None
+                prev_diff = None
             else:
                 prev_lat = torch.stack(prev_buffer, dim=0).to(self.device)
-                prev_play = prev_play_buffer.copy()
+                prev_diff = prev_diff_buffer.copy()
 
             latent = self.sample_single_patch(
                 normalizer=normalizer,
                 previous_latent=prev_lat,
                 target_difficulty=difficulty_schedule[i],
-                previous_playabilities=prev_play,
+                previous_difficulties=prev_diff,
                 temperature=temperature,
                 guidance_scale=guidance_scale,
                 show_progress=False
@@ -176,7 +176,7 @@ class Sampler:
 
             generated.append(latent)
             prev_buffer.append(latent.cpu())
-            prev_play_buffer.append(difficulty_schedule[i])
+            prev_diff_buffer.append(difficulty_schedule[i])
 
         result = torch.stack(generated, dim=0)
 

@@ -30,7 +30,7 @@ class PatchDatasetCreator(Dataset):
 class AutoregressivePatchDatasetCreator(Dataset):
     def __init__(self,
                  latents: torch.Tensor,
-                 playabilities: Sequence,
+                 difficulties: Sequence,
                  num_prev: int = 10,
                  level_ids: Optional[Sequence] = None):
         super().__init__()
@@ -38,12 +38,12 @@ class AutoregressivePatchDatasetCreator(Dataset):
         assert latents.dim() == 2
         num_patches = latents.shape[0]
 
-        assert len(playabilities) == num_patches
+        assert len(difficulties) == num_patches
         if level_ids is not None:
             assert len(level_ids) == num_patches
 
         self.latents = latents
-        self.playabilities = torch.as_tensor(playabilities, dtype=latents.dtype)
+        self.difficulties = torch.as_tensor(difficulties, dtype=latents.dtype)
         self.num_prev = int(num_prev)
         self.level_ids = torch.as_tensor(level_ids) if level_ids is not None else None
 
@@ -62,29 +62,29 @@ class AutoregressivePatchDatasetCreator(Dataset):
         k = self.num_prev
 
         current_latent = self.latents[idx]
-        current_playability = self.playabilities[idx].unsqueeze(0)
+        current_difficulty = self.difficulties[idx].unsqueeze(0)
         zero_latent = torch.zeros(self.latent_dim, dtype=dtype, device=device)
-        zero_play = torch.zeros(1, dtype=dtype, device=device)
+        zero_diff = torch.zeros(1, dtype=dtype, device=device)
 
         prev_latents = []
-        prev_playabilities = []
+        prev_difficulties = []
 
         for j in range(1, k + 1):
             prev_idx = idx - j
             if prev_idx < 0:
                 prev_latents.append(zero_latent)
-                prev_playabilities.append(zero_play)
+                prev_difficulties.append(zero_diff)
                 continue
             if self.level_ids is not None:
                 if self.level_ids[prev_idx].item() != self.level_ids[idx].item():
                     prev_latents.append(zero_latent)
-                    prev_playabilities.append(zero_play)
+                    prev_difficulties.append(zero_diff)
                     continue
             prev_latents.append(self.latents[prev_idx].to(device))
-            prev_playabilities.append(self.playabilities[prev_idx].unsqueeze(0).to(device))
+            prev_difficulties.append(self.difficulties[prev_idx].unsqueeze(0).to(device))
         prev_latents = torch.stack(prev_latents, dim=0)
-        prev_playabilities = torch.cat(prev_playabilities, dim=0).view(k)
+        prev_difficulties = torch.cat(prev_difficulties, dim=0).view(k)
         current_latent = current_latent.to(device)
-        current_playability = current_playability.to(device)
+        current_difficulty = current_difficulty.to(device)
 
-        return current_latent, prev_latents, current_playability, prev_playabilities
+        return current_latent, prev_latents, current_difficulty, prev_difficulties

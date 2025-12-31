@@ -216,11 +216,11 @@ class DiffusionUNet(nn.Module):
                 else:
                     raise ValueError('previous_difficulties length incompatible')
 
-        prev_play_flat = previous_difficulties.reshape(batch * k, 1)
-        prev_play_enc = self.prev_difficulty_mlp(prev_play_flat)
-        prev_play_enc = prev_play_enc.reshape(batch, k, -1)
+        prev_diff_flat = previous_difficulties.reshape(batch * k, 1)
+        prev_diff_enc = self.prev_difficulty_mlp(prev_diff_flat)
+        prev_diff_enc = prev_diff_enc.reshape(batch, k, -1)
 
-        per_prev = prev_enc + prev_play_enc
+        per_prev = prev_enc + prev_diff_enc
         ctx_emb = per_prev.mean(dim=1)
 
         if target_difficulty is None:

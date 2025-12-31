@@ -34,17 +34,17 @@ class FourierDifficultyEmbedding(nn.Module):
             nn.Linear(embedding_dim, embedding_dim)
         )
 
-    def forward(self, playability: torch.Tensor) -> torch.Tensor:
-        if playability.dim() == 1:
-            playability = playability.unsqueeze(-1)
+    def forward(self, difficulty: torch.Tensor) -> torch.Tensor:
+        if difficulty.dim() == 1:
+            difficulty = difficulty.unsqueeze(-1)
 
-        scaled = playability * 2 - 1
+        scaled = difficulty * 2 - 1
 
         angles = scaled * self.frequencies.unsqueeze(0) * math.pi
         fourier_features = torch.cat([
             torch.sin(angles),
             torch.cos(angles),
-            playability
+            difficulty
         ], dim=-1)
 
         return self.projection(fourier_features)
