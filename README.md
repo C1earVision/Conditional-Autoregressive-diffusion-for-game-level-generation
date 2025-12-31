@@ -122,6 +122,14 @@ python -m scripts.generate_levels
 
 Generated levels are saved to `output/generated_levels/`.
 
+### Step 6: Interactive Demo (Desktop App)
+
+For an interactive experience, use the desktop GUI application:
+
+```bash
+python demo.py
+```
+
 ## License
 
 MIT License
