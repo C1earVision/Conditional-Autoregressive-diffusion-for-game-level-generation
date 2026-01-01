@@ -19,7 +19,7 @@ class SinusoidalPositionalEmbedding(nn.Module):
 
 
 class FourierDifficultyEmbedding(nn.Module):
-    def __init__(self, embedding_dim: int, num_frequencies: int = 128):
+    def __init__(self, embedding_dim: int, num_frequencies: int = 256):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.num_frequencies = num_frequencies

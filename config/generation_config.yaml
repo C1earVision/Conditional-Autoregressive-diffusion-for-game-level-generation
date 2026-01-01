@@ -1,5 +1,5 @@
 generation:
-  difficulty_target: 1.0
+  difficulty_target: 0.9192546583850931
   guidance_scale: 3.0
   num_levels: 1
   patches_per_level: 1

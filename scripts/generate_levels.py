@@ -76,6 +76,7 @@ unet = DiffusionUNet(
     hidden_dims=diff_config.hidden_dims,
     num_res_blocks=diff_config.num_res_blocks,
     cond_dropout=diff_config.cond_dropout,
+    context_dropout=diff_config.context_dropout,
 ).to(device)
 
 diff_checkpoint = torch.load(diffusion_path, map_location=device)

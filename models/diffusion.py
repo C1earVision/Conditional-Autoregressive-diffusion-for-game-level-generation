@@ -3,44 +3,35 @@ import torch.nn as nn
 from typing import Optional
 from .embeddings import FourierDifficultyEmbedding, SinusoidalPositionalEmbedding
 
-
 class ResidualBlock(nn.Module):
-    def __init__(self, dim: int, time_emb_dim: int, dropout: float = 0.1):
+    def __init__(self, dim: int, time_emb_dim: int):
         super().__init__()
         self.time_mlp = nn.Sequential(nn.Linear(time_emb_dim, dim), nn.SiLU())
         self.block = nn.Sequential(
             nn.Linear(dim, dim),
             nn.LayerNorm(dim),
             nn.SiLU(),
-            nn.Dropout(dropout),
             nn.Linear(dim, dim),
             nn.LayerNorm(dim),
         )
-        self.dropout = nn.Dropout(dropout)
         self.activation = nn.SiLU()
 
     def forward(self, x: torch.Tensor, time_emb: torch.Tensor) -> torch.Tensor:
         time_proj = self.time_mlp(time_emb)
         h = self.block(x + time_proj)
-        return self.activation(x + self.dropout(h))
+        return self.activation(x + h)
 
 
 class MixingMLP(nn.Module):
-    def __init__(self, dim: int, hidden_scale: float = 1.0, dropout: float = 0.1):
+    def __init__(self, dim: int, hidden_scale: float = 1.0):
         super().__init__()
         mid = int(dim * hidden_scale)
         mid = max(mid, dim)
         self.norm = nn.LayerNorm(dim)
-        self.mlp = nn.Sequential(
-            nn.Linear(dim, mid), 
-            nn.SiLU(), 
-            nn.Dropout(dropout),
-            nn.Linear(mid, dim)
-        )
-        self.dropout = nn.Dropout(dropout)
+        self.mlp = nn.Sequential(nn.Linear(dim, mid), nn.SiLU(), nn.Linear(mid, dim))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.dropout(self.mlp(self.norm(x)))
+        return x + self.mlp(self.norm(x))
 
 
 class DiffusionUNet(nn.Module):
@@ -53,6 +44,7 @@ class DiffusionUNet(nn.Module):
         hidden_dims: list = [256, 512, 512],
         num_res_blocks: int = 2,
         cond_dropout: float = 0.15,
+        context_dropout: float = 0.2,
     ):
         super().__init__()
         self.latent_dim = latent_dim
@@ -62,8 +54,7 @@ class DiffusionUNet(nn.Module):
         self.hidden_dims = hidden_dims
         self.num_res_blocks = num_res_blocks
         self.cond_dropout = cond_dropout
-
-        self.output_scale = nn.Parameter(torch.tensor([1.0], dtype=torch.float32))
+        self.context_dropout = context_dropout
 
         self.time_embedding = SinusoidalPositionalEmbedding(time_emb_dim)
         self.time_mlp = nn.Sequential(
@@ -92,74 +83,40 @@ class DiffusionUNet(nn.Module):
 
         self.input_proj = nn.Linear(latent_dim * 2, hidden_dims[0])
 
-        # Build encoder with clear structure
-        self.encoder_levels = nn.ModuleList()
-        self.encoder_downsamples = nn.ModuleList()
-        
+        self.encoder_blocks = nn.ModuleList()
+        self.encoder_mixes = nn.ModuleList()
+        dims = [hidden_dims[0]] + hidden_dims
         for i in range(len(hidden_dims)):
-            # Residual blocks at this level
-            current_dim = hidden_dims[i] if i > 0 else hidden_dims[0]
-            blocks = nn.ModuleList([
-                ResidualBlock(current_dim, time_emb_dim) 
-                for _ in range(num_res_blocks)
-            ])
-            mix = MixingMLP(current_dim, hidden_scale=1.0)
-            
-            self.encoder_levels.append(nn.ModuleDict({
-                'blocks': blocks,
-                'mix': mix
-            }))
-            
-            # Downsampling to next level (if not last)
+            blocks = nn.ModuleList([ResidualBlock(dims[i], time_emb_dim) for _ in range(num_res_blocks)])
+            self.encoder_blocks.append(blocks)
+            self.encoder_mixes.append(MixingMLP(dims[i], hidden_scale=1.0))
             if i < len(hidden_dims) - 1:
-                self.encoder_downsamples.append(
-                    nn.Linear(hidden_dims[i], hidden_dims[i + 1])
-                )
+                self.encoder_blocks.append(nn.ModuleList([nn.Linear(dims[i], dims[i + 1])]))
 
-        # Bottleneck
         bottleneck_dim = hidden_dims[-1]
-        self.bottleneck_blocks = nn.ModuleList([
-            ResidualBlock(bottleneck_dim, time_emb_dim) 
-            for _ in range(num_res_blocks)
-        ])
+        self.bottleneck = nn.ModuleList([ResidualBlock(bottleneck_dim, time_emb_dim) for _ in range(num_res_blocks)])
         self.bottleneck_mix = MixingMLP(bottleneck_dim, hidden_scale=1.0)
 
-        # Build decoder - mirror of encoder
-        self.decoder_levels = nn.ModuleList()
-        self.decoder_upsamples = nn.ModuleList()
+        self.decoder_blocks = nn.ModuleList()
+        self.decoder_mixes = nn.ModuleList()
         self.skip_projections = nn.ModuleList()
-        
-        # Decoder processes in reverse: [512, 512, 256] for hidden_dims=[256, 512, 512]
-        for i in range(len(hidden_dims)):
-            decoder_idx = len(hidden_dims) - 1 - i
-            current_dim = hidden_dims[decoder_idx]
-            
-            # Skip connection projection (concatenate then project)
-            # Skip comes from encoder at the same level
-            skip_dim = current_dim
+        reversed_dims = list(reversed(hidden_dims))
+        reversed_encoder_dims = [hidden_dims[0]] + hidden_dims
+        reversed_skip_dims = list(reversed(reversed_encoder_dims[:len(hidden_dims)]))
+
+        for i in range(len(reversed_dims)):
+            current_dim = reversed_dims[i]
+            skip_dim = reversed_skip_dims[i]
             concat_dim = current_dim + skip_dim
-            skip_proj = nn.Linear(concat_dim, current_dim)
-            self.skip_projections.append(skip_proj)
+            self.skip_projections.append(nn.Linear(concat_dim, current_dim))
             
-            # Residual blocks at this level
-            blocks = nn.ModuleList([
-                ResidualBlock(current_dim, time_emb_dim) 
-                for _ in range(num_res_blocks)
-            ])
-            mix = MixingMLP(current_dim, hidden_scale=1.0)
+            blocks = nn.ModuleList([ResidualBlock(current_dim, time_emb_dim) for _ in range(num_res_blocks)])
+            self.decoder_blocks.append(blocks)
+            self.decoder_mixes.append(MixingMLP(current_dim, hidden_scale=1.0))
             
-            self.decoder_levels.append(nn.ModuleDict({
-                'blocks': blocks,
-                'mix': mix
-            }))
-            
-            # Upsampling to next level (if not last)
-            if i < len(hidden_dims) - 1:
-                next_decoder_idx = decoder_idx - 1
-                next_dim = hidden_dims[next_decoder_idx]
-                self.decoder_upsamples.append(
-                    nn.Linear(current_dim, next_dim)
-                )
+            if i < len(reversed_dims) - 1:
+                next_dim = reversed_dims[i + 1]
+                self.decoder_blocks.append(nn.Linear(current_dim, next_dim))
 
         self.output_proj = nn.Linear(hidden_dims[0], latent_dim)
 
@@ -170,9 +127,6 @@ class DiffusionUNet(nn.Module):
         print(f"{'='*70}")
         print(f"  Condition dropout: {cond_dropout*100:.0f}%")
         print(f"  Latent dim: {latent_dim}")
-        print(f"  Hidden dims: {hidden_dims}")
-        print(f"  Encoder levels: {len(self.encoder_levels)}")
-        print(f"  Decoder levels: {len(self.decoder_levels)}")
         print(f"  Parameters: {sum(p.numel() for p in self.parameters()):,}")
         print(f"{'='*70}\n")
 
@@ -203,11 +157,9 @@ class DiffusionUNet(nn.Module):
             timesteps = timesteps.long()
         timesteps = timesteps.to(device=device)
 
-        # Time embedding
         t_emb = self.time_embedding(timesteps)
         t_emb = self.time_mlp(t_emb)
 
-        # Process previous latents
         if previous_latents is None:
             previous_latents = torch.zeros((batch, 1, self.latent_dim), device=device, dtype=dtype)
             inferred_k = 1
@@ -233,7 +185,10 @@ class DiffusionUNet(nn.Module):
         prev_enc = prev_enc.reshape(batch, inferred_k, -1)
         k = inferred_k
 
-        # Process previous difficulties
+        if self.training and self.context_dropout > 0:
+            context_drop_mask = (torch.rand(batch, device=device) < self.context_dropout).view(-1, 1, 1)
+            prev_enc = torch.where(context_drop_mask.expand_as(prev_enc), torch.zeros_like(prev_enc), prev_enc)
+
         if previous_difficulties is None:
             previous_difficulties = torch.zeros((batch, k), device=device, dtype=dtype)
         else:
@@ -260,7 +215,6 @@ class DiffusionUNet(nn.Module):
         per_prev = prev_enc + prev_diff_enc
         ctx_emb = per_prev.mean(dim=1)
 
-        # Process target difficulty
         if target_difficulty is None:
             diff_emb = self.null_diff_embedding.unsqueeze(0).expand(batch, -1)
         else:
@@ -277,7 +231,6 @@ class DiffusionUNet(nn.Module):
                 null_emb = self.null_diff_embedding.unsqueeze(0).expand(batch, -1)
                 diff_emb = torch.where(drop_mask, null_emb, diff_emb)
 
-        # Prepare input
         if previous_latents.dim() == 2:
             prev_lat_for_mean = prev_flat.reshape(batch, k, self.latent_dim)
         else:
@@ -287,51 +240,42 @@ class DiffusionUNet(nn.Module):
         h = torch.cat([x, prev_lat_mean], dim=-1)
         h = self.input_proj(h)
 
-        # Combined embedding
         combined_emb = t_emb + ctx_emb + diff_emb
 
-        # Encoder forward pass
         skip_connections = []
-        for i, level in enumerate(self.encoder_levels):
-            # Process residual blocks
-            for res_block in level['blocks']:
+        block_idx = 0
+        for i in range(len(self.hidden_dims)):
+            for res_block in self.encoder_blocks[block_idx]:
                 h = res_block(h, combined_emb)
-            h = level['mix'](h)
-            
-            # Save skip connection BEFORE downsampling
+            block_idx += 1
+            h = self.encoder_mixes[i](h)
             skip_connections.append(h)
-            
-            # Downsample if not last level
-            if i < len(self.encoder_downsamples):
-                h = self.encoder_downsamples[i](h)
+            if i < len(self.hidden_dims) - 1:
+                for down_layer in self.encoder_blocks[block_idx]:
+                    h = down_layer(h)
+                block_idx += 1
 
-        # Bottleneck
-        for bottleneck_block in self.bottleneck_blocks:
+        for bottleneck_block in self.bottleneck:
             h = bottleneck_block(h, combined_emb)
         h = self.bottleneck_mix(h)
 
-        # Decoder forward pass
-        # Skip connections are in encoder order, we need them in decoder order (reversed)
         skip_connections = list(reversed(skip_connections))
-        
-        for i, level in enumerate(self.decoder_levels):
-            # Concatenate with skip connection
+        decoder_block_idx = 0
+        for i in range(len(self.hidden_dims)):
             skip = skip_connections[i]
             h = torch.cat([h, skip], dim=-1)
             h = self.skip_projections[i](h)
             
-            # Process residual blocks
-            for res_block in level['blocks']:
+            for res_block in self.decoder_blocks[decoder_block_idx]:
                 h = res_block(h, combined_emb)
-            h = level['mix'](h)
+            decoder_block_idx += 1
             
-            # Upsample if not last level
-            if i < len(self.decoder_upsamples):
-                h = self.decoder_upsamples[i](h)
+            h = self.decoder_mixes[i](h)
+            
+            if i < len(self.hidden_dims) - 1:
+                h = self.decoder_blocks[decoder_block_idx](h)
+                decoder_block_idx += 1
 
-        # Output projection
         noise_pred = self.output_proj(h)
-        scale = self.output_scale.clamp(min=0.1, max=10.0)
-        noise_pred = noise_pred * scale
 
         return noise_pred

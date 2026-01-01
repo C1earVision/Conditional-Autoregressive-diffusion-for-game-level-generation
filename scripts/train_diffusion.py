@@ -75,13 +75,12 @@ unet = DiffusionUNet(
     hidden_dims=diff_config.hidden_dims,
     num_res_blocks=diff_config.num_res_blocks,
     cond_dropout=diff_config.cond_dropout,
+    context_dropout=diff_config.context_dropout,
 ).to(device)
 
 print("="*70)
 print("MODEL INITIALIZATION CHECK")
 print("="*70)
-print(f"Output scale initial value: {unet.output_scale.item()}")
-print(f"Output scale requires_grad: {unet.output_scale.requires_grad}")
 print(f"Output projection type: {type(unet.output_proj)}")
 print("="*70)
 
