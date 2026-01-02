@@ -16,7 +16,7 @@ class DiffusionConfig:
     hidden_dims: list = field(default_factory=lambda: [256, 512, 512])
     num_res_blocks: int = 2
     cond_dropout: float = 0.05
-    context_dropout: float = 0.3
+    context_dropout: float = 0.1
 
 @dataclass
 class NormalizerConfig:

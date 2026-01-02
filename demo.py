@@ -46,7 +46,7 @@ class LevelGeneratorApp:
 
         self.difficulty_var = tk.DoubleVar(value=1.0)
         self.temperature_var = tk.DoubleVar(value=0.2)
-        self.guidance_var = tk.DoubleVar(value=3.0)
+        self.guidance_var = tk.DoubleVar(value=5.0)
         self.patches_var = tk.IntVar(value=1)
         
 
