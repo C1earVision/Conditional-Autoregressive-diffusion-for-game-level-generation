@@ -4,34 +4,42 @@ from typing import Optional
 from .embeddings import FourierDifficultyEmbedding, SinusoidalPositionalEmbedding
 
 class ResidualBlock(nn.Module):
-    def __init__(self, dim: int, time_emb_dim: int):
+    def __init__(self, dim: int, time_emb_dim: int, dropout: float = 0.1):
         super().__init__()
         self.time_mlp = nn.Sequential(nn.Linear(time_emb_dim, dim), nn.SiLU())
         self.block = nn.Sequential(
             nn.Linear(dim, dim),
             nn.LayerNorm(dim),
             nn.SiLU(),
+            nn.Dropout(dropout),
             nn.Linear(dim, dim),
             nn.LayerNorm(dim),
         )
+        self.dropout = nn.Dropout(dropout)
         self.activation = nn.SiLU()
 
     def forward(self, x: torch.Tensor, time_emb: torch.Tensor) -> torch.Tensor:
         time_proj = self.time_mlp(time_emb)
         h = self.block(x + time_proj)
-        return self.activation(x + h)
+        return self.activation(x + self.dropout(h))
 
 
 class MixingMLP(nn.Module):
-    def __init__(self, dim: int, hidden_scale: float = 1.0):
+    def __init__(self, dim: int, hidden_scale: float = 1.0, dropout: float = 0.1):
         super().__init__()
         mid = int(dim * hidden_scale)
         mid = max(mid, dim)
         self.norm = nn.LayerNorm(dim)
-        self.mlp = nn.Sequential(nn.Linear(dim, mid), nn.SiLU(), nn.Linear(mid, dim))
+        self.mlp = nn.Sequential(
+            nn.Linear(dim, mid),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Linear(mid, dim)
+        )
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.mlp(self.norm(x))
+        return x + self.dropout(self.mlp(self.norm(x)))
 
 
 class DiffusionUNet(nn.Module):
@@ -80,6 +88,8 @@ class DiffusionUNet(nn.Module):
             num_frequencies=64
         )
         self.null_diff_embedding = nn.Parameter(torch.randn(time_emb_dim) * 0.02)
+        
+        self.output_scale = nn.Parameter(torch.ones(1))
 
         self.input_proj = nn.Linear(latent_dim * 2, hidden_dims[0])
 
@@ -185,9 +195,15 @@ class DiffusionUNet(nn.Module):
         prev_enc = prev_enc.reshape(batch, inferred_k, -1)
         k = inferred_k
 
+        # Generate context dropout mask (used for prev_enc, prev_diff_enc, and prev_lat_mean)
         if self.training and self.context_dropout > 0:
-            context_drop_mask = (torch.rand(batch, device=device) < self.context_dropout).view(-1, 1, 1)
-            prev_enc = torch.where(context_drop_mask.expand_as(prev_enc), torch.zeros_like(prev_enc), prev_enc)
+            context_drop_mask = (torch.rand(batch, device=device) < self.context_dropout)
+        else:
+            context_drop_mask = None
+
+        if context_drop_mask is not None:
+            mask_3d = context_drop_mask.view(-1, 1, 1)
+            prev_enc = torch.where(mask_3d.expand_as(prev_enc), torch.zeros_like(prev_enc), prev_enc)
 
         if previous_difficulties is None:
             previous_difficulties = torch.zeros((batch, k), device=device, dtype=dtype)
@@ -211,6 +227,11 @@ class DiffusionUNet(nn.Module):
         prev_diff_flat = previous_difficulties.reshape(batch * k, 1)
         prev_diff_enc = self.prev_difficulty_mlp(prev_diff_flat)
         prev_diff_enc = prev_diff_enc.reshape(batch, k, -1)
+
+        # Apply context dropout to prev_diff_enc as well
+        if context_drop_mask is not None:
+            mask_3d = context_drop_mask.view(-1, 1, 1)
+            prev_diff_enc = torch.where(mask_3d.expand_as(prev_diff_enc), torch.zeros_like(prev_diff_enc), prev_diff_enc)
 
         per_prev = prev_enc + prev_diff_enc
         ctx_emb = per_prev.mean(dim=1)
@@ -237,10 +258,16 @@ class DiffusionUNet(nn.Module):
             prev_lat_for_mean = previous_latents.reshape(batch, k, self.latent_dim)
         prev_lat_mean = prev_lat_for_mean.mean(dim=1)
 
+        # Apply context dropout to prev_lat_mean as well
+        if context_drop_mask is not None:
+            mask_2d = context_drop_mask.view(-1, 1)
+            prev_lat_mean = torch.where(mask_2d.expand_as(prev_lat_mean), torch.zeros_like(prev_lat_mean), prev_lat_mean)
+
         h = torch.cat([x, prev_lat_mean], dim=-1)
         h = self.input_proj(h)
 
         combined_emb = t_emb + ctx_emb + diff_emb
+
 
         skip_connections = []
         block_idx = 0
@@ -277,5 +304,7 @@ class DiffusionUNet(nn.Module):
                 decoder_block_idx += 1
 
         noise_pred = self.output_proj(h)
+        scale = self.output_scale.clamp(min=0.1, max=10.0)
+        noise_pred = noise_pred * scale
 
         return noise_pred

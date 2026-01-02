@@ -1,9 +1,9 @@
 generation:
-  difficulty_target: 0.0
-  guidance_scale: 3.0
+  difficulty_target: 0.9
+  guidance_scale: 5.0
   num_levels: 1
   patches_per_level: 1
-  temperature: 0.5
+  temperature: 0.2
 models:
   autoencoder_path: checkpoints/autoencoder.pth
   diffusion_path: checkpoints/diffusion_best.pth

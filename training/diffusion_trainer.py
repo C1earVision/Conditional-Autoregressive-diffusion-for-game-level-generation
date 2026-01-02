@@ -29,7 +29,7 @@ class DiffusionTrainer:
             if isinstance(val, torch.Tensor):
                 setattr(self.schedule, name, val.to(device))
 
-        self.optimizer = optim.AdamW(self.unet.parameters(), lr=learning_rate, weight_decay=1e-2)
+        self.optimizer = optim.AdamW(self.unet.parameters(), lr=learning_rate, weight_decay=1e-3)
         self.criterion = nn.MSELoss()
 
         self.train_losses = []
@@ -132,8 +132,8 @@ class DiffusionTrainer:
         print(f"Parameters: {sum(p.numel() for p in self.unet.parameters()):,}")
         print(f"Epochs: {num_epochs}")
 
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.5, patience=20, min_lr=1e-6
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, T_max=num_epochs, eta_min=self.optimizer.param_groups[0]['lr'] * 0.01
         )
 
         best_val_loss = float('inf')
@@ -153,17 +153,16 @@ class DiffusionTrainer:
 
             avg_epoch_loss = epoch_loss / len(train_loader)
             self.epoch_losses.append(avg_epoch_loss)
+            self.scheduler.step()
 
             if val_loader is not None:
                 val_loss = self.validate(val_loader)
                 self.val_losses.append(val_loss)
-                self.scheduler.step(val_loss)
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     self.save_checkpoint(save_path.replace('.pth', '_best.pth'))
                 print(f"Epoch {epoch+1}/{num_epochs} | Train: {avg_epoch_loss:.4f} | Val: {val_loss:.4f}")
             else:
-                self.scheduler.step(avg_epoch_loss)
                 print(f"Epoch {epoch+1}/{num_epochs} | Train: {avg_epoch_loss:.4f}")
 
             if (epoch + 1) % save_interval == 0:

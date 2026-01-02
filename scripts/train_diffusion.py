@@ -50,7 +50,7 @@ print("STEP 4: Creating Training Dataset")
 print("="*70)
 
 print(f'scores min/max: {min(difficulties)}/{max(difficulties)}')
-dataset = AutoregressivePatchDatasetCreator(latents, difficulties)
+dataset = AutoregressivePatchDatasetCreator(latents, difficulties, num_prev=5)
 
 train_size = int(0.8 * len(dataset))
 val_size = len(dataset) - train_size
@@ -83,7 +83,6 @@ print("MODEL INITIALIZATION CHECK")
 print("="*70)
 print(f"Output projection type: {type(unet.output_proj)}")
 print("="*70)
-
 
 num_params = sum(p.numel() for p in unet.parameters())
 print(f"✓ Model created: {num_params:,} parameters")

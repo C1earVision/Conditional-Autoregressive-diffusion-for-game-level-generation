@@ -24,7 +24,7 @@ class FourierDifficultyEmbedding(nn.Module):
         self.embedding_dim = embedding_dim
         self.num_frequencies = num_frequencies
 
-        frequencies = torch.randn(num_frequencies) * 2.0
+        frequencies = torch.exp(torch.linspace(-2.0, 4.0, num_frequencies))
         self.register_buffer('frequencies', frequencies)
 
         fourier_dim = num_frequencies * 2

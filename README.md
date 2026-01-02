@@ -120,6 +120,19 @@ Then generate:
 python -m scripts.generate_levels
 ```
 
+You can also use command-line arguments to override config settings:
+
+```bash
+python -m scripts.generate_levels --difficulty 0.8 --temperature 0.5 --guidance 3.0 --patches 10
+```
+
+**Available CLI Arguments:**
+- `--difficulty` — Difficulty target (0.0-1.0)
+- `--temperature` — Sampling temperature
+- `--guidance` — CFG guidance scale
+- `--patches` — Number of patches per level
+- `--num_levels` — Number of levels to generate
+
 Generated levels are saved to `output/generated_levels/`.
 
 ### Step 6: Interactive Demo (Desktop App)

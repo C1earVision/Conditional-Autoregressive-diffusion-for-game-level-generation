@@ -31,7 +31,7 @@ class AutoregressivePatchDatasetCreator(Dataset):
     def __init__(self,
                  latents: torch.Tensor,
                  difficulties: Sequence,
-                 num_prev: int = 10,
+                 num_prev: int = 5,
                  level_ids: Optional[Sequence] = None):
         super().__init__()
 

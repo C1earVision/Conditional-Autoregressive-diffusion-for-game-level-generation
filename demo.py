@@ -243,19 +243,17 @@ class LevelGeneratorApp:
         close_btn = ttk.Button(popup, text="Close", command=popup.destroy)
         close_btn.pack(pady=10)
     
-    def update_config(self):
-        """Update generation_config.yaml with current slider values."""
-        with open(CONFIG_PATH, 'r') as f:
-            config = yaml.safe_load(f)
-        
-        config['generation']['difficulty_target'] = float(self.difficulty_var.get())
-        config['generation']['temperature'] = float(self.temperature_var.get())
-        config['generation']['guidance_scale'] = float(self.guidance_var.get())
-        config['generation']['patches_per_level'] = int(self.patches_var.get())
-        config['generation']['num_levels'] = 1
-        
-        with open(CONFIG_PATH, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
+    def build_command(self):
+        """Build command with CLI arguments for generation parameters."""
+        cmd = [
+            "python", "-m", "scripts.generate_levels",
+            "--difficulty", str(self.difficulty_var.get()),
+            "--temperature", str(self.temperature_var.get()),
+            "--guidance", str(self.guidance_var.get()),
+            "--patches", str(int(self.patches_var.get())),
+            "--num_levels", "1"
+        ]
+        return cmd
     
     def get_latest_level_image(self):
         """Get the most recently generated level image (PNG visualization only)."""
@@ -287,13 +285,13 @@ class LevelGeneratorApp:
     def generate_level(self):
         """Generate a level using the existing script."""
         try:
-            self.update_config()
+            cmd = self.build_command()
             
             self.root.after(0, lambda: self.status_var.set("⏳ Running generation script..."))
             
 
             result = subprocess.run(
-                ["python", "-m", "scripts.generate_levels"],
+                cmd,
                 cwd=PROJECT_DIR,
                 capture_output=True,
                 text=True,

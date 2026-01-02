@@ -1,4 +1,5 @@
 import torch
+import argparse
 from models.autoencoder import Autoencoder
 from models.diffusion import DiffusionUNet
 from generation.sampler import Sampler
@@ -20,6 +21,14 @@ if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
+arg_parser = argparse.ArgumentParser(description='Generate levels with diffusion model')
+arg_parser.add_argument('--difficulty', type=float, default=None, help='Difficulty target (0.0-1.0)')
+arg_parser.add_argument('--temperature', type=float, default=None, help='Sampling temperature')
+arg_parser.add_argument('--guidance', type=float, default=None, help='CFG guidance scale')
+arg_parser.add_argument('--patches', type=int, default=None, help='Number of patches per level')
+arg_parser.add_argument('--num_levels', type=int, default=None, help='Number of levels to generate')
+args = arg_parser.parse_args()
+
 device = 'cuda'
 ae_config = AutoencoderConfig()
 diff_config = DiffusionConfig()
@@ -37,16 +46,18 @@ print(f"Device: {device}")
 with open('config/generation_config.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
-patches_per_level = config['generation']['patches_per_level']
-num_levels = config['generation']['num_levels']
-difficulty_target = config['generation']['difficulty_target']
-temperature = config['generation']['temperature']
-guidance_scale = config['generation']['guidance_scale']
+# Use CLI args if provided, otherwise fall back to config file
+patches_per_level = args.patches if args.patches is not None else config['generation']['patches_per_level']
+num_levels = args.num_levels if args.num_levels is not None else config['generation']['num_levels']
+difficulty_target = args.difficulty if args.difficulty is not None else config['generation']['difficulty_target']
+temperature = args.temperature if args.temperature is not None else config['generation']['temperature']
+guidance_scale = args.guidance if args.guidance is not None else config['generation']['guidance_scale']
 
 autoencoder_path = config['models']['autoencoder_path']
 diffusion_path = config['models']['diffusion_path']
 normalizer_path = config['models']['normalizer_path']
 output_dir = config['output']['directory']
+
 
 autoencoder = Autoencoder(
     num_tile_types=ae_config.num_tile_types,
