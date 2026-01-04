@@ -4,7 +4,7 @@ from typing import List, Dict, Tuple
 
 class PatchExtractor:
     def __init__(self, patch_height: int = 14, patch_width: int = 16,
-                 stride: int = 4, vertical_stride: int = 8):
+                 stride: int = 2, vertical_stride: int = 8):
         self.patch_height = patch_height
         self.patch_width = patch_width
         self.stride = stride

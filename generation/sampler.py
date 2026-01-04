@@ -130,11 +130,21 @@ class Sampler:
         difficulty_target: float = 0.5,
         temperature: float = 0.9,
         guidance_scale: float = 3.0,
-        show_progress: bool = True
+        show_progress: bool = True,
+        seed_latent: Optional[torch.Tensor] = None,
+        seed_difficulty: Optional[float] = None,
     ) -> torch.Tensor:
         generated = []
         prev_buffer = []
         prev_diff_buffer = []
+        
+        # Initialize with seed context if provided
+        if seed_latent is not None:
+            if seed_latent.dim() == 1:
+                seed_latent = seed_latent.unsqueeze(0)
+            prev_buffer.append(seed_latent.squeeze(0).cpu())
+            prev_diff_buffer.append(seed_difficulty if seed_difficulty is not None else 0.0)
+            print(f"  Using seed context: latent norm={seed_latent.norm():.2f}, difficulty={prev_diff_buffer[0]:.3f}")
 
         if isinstance(difficulty_target, (list, tuple)):
             difficulty_schedule = [float(p) for p in difficulty_target]

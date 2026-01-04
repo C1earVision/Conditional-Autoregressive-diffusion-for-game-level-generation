@@ -57,6 +57,16 @@ diffusion_path = config['models']['diffusion_path']
 normalizer_path = config['models']['normalizer_path']
 output_dir = config['output']['directory']
 
+# Load seed context from training data (first latent of first level)
+import pickle as pkl
+latents_all = torch.load('output/processed/latents.pt')
+with open('output/processed/metadata.pkl', 'rb') as f:
+    metadata = pkl.load(f)
+difficulties_all = [d['final_score'] for d in metadata]
+seed_latent = latents_all[0]  # First latent (normalized)
+seed_difficulty = difficulties_all[0]  # First difficulty
+print(f"✓ Loaded seed context: latent shape={seed_latent.shape}, difficulty={seed_difficulty:.3f}")
+
 
 autoencoder = Autoencoder(
     num_tile_types=ae_config.num_tile_types,
@@ -141,6 +151,8 @@ for level_idx in range(num_levels):
         temperature=temperature,
         guidance_scale=guidance_scale,
         show_progress=True,
+        seed_latent=seed_latent,
+        seed_difficulty=seed_difficulty,
     )
 
     latents_denorm = normalizer.denormalize(latents)
