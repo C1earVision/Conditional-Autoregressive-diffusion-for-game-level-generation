@@ -19,7 +19,13 @@ class NoiseSchedule:
         self.schedule_type = schedule_type
         self.device = device
         self.min_alpha_cumprod = min_alpha_cumprod
-        self.betas = self._linear_schedule()
+        
+        if schedule_type == 'cosine':
+            self.betas = self._cosine_schedule()
+        elif schedule_type == 'linear':
+            self.betas = self._linear_schedule()
+        else:
+            raise ValueError(f"Unknown schedule type: {schedule_type}. Use 'linear' or 'cosine'.")
 
         self.alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
@@ -37,6 +43,19 @@ class NoiseSchedule:
 
     def _linear_schedule(self) -> torch.Tensor:
         return torch.linspace(self.beta_start, self.beta_end, self.num_timesteps)
+
+    def _cosine_schedule(self, s: float = 0.008) -> torch.Tensor:
+        steps = self.num_timesteps + 1
+        t = torch.linspace(0, self.num_timesteps, steps)
+        
+        f_t = torch.cos(((t / self.num_timesteps) + s) / (1 + s) * (np.pi / 2)) ** 2
+        alphas_cumprod = f_t / f_t[0]
+        
+        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+        
+        betas = torch.clamp(betas, min=1e-6, max=0.999)
+        
+        return betas
 
 
     def _to_device(self, device: str):

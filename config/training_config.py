@@ -14,7 +14,7 @@ class AutoencoderTrainingConfig:
 class DiffusionTrainingConfig:
     batch_size: int = 16
     num_epochs: int = 600
-    learning_rate: float = 3e-4
+    learning_rate: float = 5e-4
     save_interval: int = 300
     save_path: str = './checkpoints/diffusion.pth'
 

@@ -50,11 +50,31 @@ print("STEP 4: Creating Training Dataset")
 print("="*70)
 
 print(f'scores min/max: {min(difficulties)}/{max(difficulties)}')
-dataset = AutoregressivePatchDatasetCreator(latents, difficulties, num_prev=5)
 
-train_size = int(0.8 * len(dataset))
-val_size = len(dataset) - train_size
-train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+level_names = [d['level_name'] for d in metadata]
+unique_levels = sorted(set(level_names))
+level_name_to_id = {name: idx for idx, name in enumerate(unique_levels)}
+level_ids = [level_name_to_id[name] for name in level_names]
+
+print(f'Unique levels: {len(unique_levels)}')
+print(f'Total patches: {len(level_ids)}')
+
+dataset = AutoregressivePatchDatasetCreator(latents, difficulties, num_prev=1, level_ids=level_ids)
+
+import random
+random.seed(42)
+unique_level_list = list(unique_levels)
+random.shuffle(unique_level_list)
+num_train_levels = int(0.8 * len(unique_level_list))
+train_levels = set(unique_level_list[:num_train_levels])
+val_levels = set(unique_level_list[num_train_levels:])
+
+train_indices = [i for i, name in enumerate(level_names) if name in train_levels]
+val_indices = [i for i, name in enumerate(level_names) if name in val_levels]
+
+from torch.utils.data import Subset
+train_dataset = Subset(dataset, train_indices)
+val_dataset = Subset(dataset, val_indices)
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
@@ -63,8 +83,8 @@ latents_check = batch[0]
 print(f"Latent norm: {latents_check.norm(dim=-1).mean():.4f}")
 print(f"Latent std: {latents_check.std():.4f}")
 
-print(f"  Train: {train_size} samples")
-print(f"  Val: {val_size} samples")
+print(f"  Train: {len(train_indices)} samples ({len(train_levels)} levels)")
+print(f"  Val: {len(val_indices)} samples ({len(val_levels)} levels)")
 print("\n" + "="*70)
 print("STEP 5: Creating Conditional U-Net")
 print("="*70)
@@ -75,7 +95,6 @@ unet = DiffusionUNet(
     hidden_dims=diff_config.hidden_dims,
     num_res_blocks=diff_config.num_res_blocks,
     cond_dropout=diff_config.cond_dropout,
-    context_dropout=diff_config.context_dropout,
 ).to(device)
 
 print("="*70)

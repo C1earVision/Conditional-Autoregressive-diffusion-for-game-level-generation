@@ -19,12 +19,12 @@ class SinusoidalPositionalEmbedding(nn.Module):
 
 
 class FourierDifficultyEmbedding(nn.Module):
-    def __init__(self, embedding_dim: int, num_frequencies: int = 256):
+    def __init__(self, embedding_dim: int, num_frequencies: int = 64):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.num_frequencies = num_frequencies
 
-        frequencies = torch.exp(torch.linspace(-2.0, 4.0, num_frequencies))
+        frequencies = torch.exp(torch.linspace(-4.0, 4.0, num_frequencies))
         self.register_buffer('frequencies', frequencies)
 
         fourier_dim = num_frequencies * 2

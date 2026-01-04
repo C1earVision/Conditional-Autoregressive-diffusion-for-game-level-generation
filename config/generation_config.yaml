@@ -6,7 +6,7 @@ generation:
   temperature: 0.2
 models:
   autoencoder_path: checkpoints/autoencoder.pth
-  diffusion_path: checkpoints/diffusion_best.pth
+  diffusion_path: checkpoints/diffusion_best_ema.pth
   normalizer_path: checkpoints/latent_normalizer.pth
 output:
   directory: output/generated_levels

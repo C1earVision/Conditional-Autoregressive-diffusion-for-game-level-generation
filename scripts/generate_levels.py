@@ -46,7 +46,6 @@ print(f"Device: {device}")
 with open('config/generation_config.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
-# Use CLI args if provided, otherwise fall back to config file
 patches_per_level = args.patches if args.patches is not None else config['generation']['patches_per_level']
 num_levels = args.num_levels if args.num_levels is not None else config['generation']['num_levels']
 difficulty_target = args.difficulty if args.difficulty is not None else config['generation']['difficulty_target']
@@ -87,7 +86,6 @@ unet = DiffusionUNet(
     hidden_dims=diff_config.hidden_dims,
     num_res_blocks=diff_config.num_res_blocks,
     cond_dropout=diff_config.cond_dropout,
-    context_dropout=diff_config.context_dropout,
 ).to(device)
 
 diff_checkpoint = torch.load(diffusion_path, map_location=device)
@@ -162,19 +160,10 @@ for level_idx in range(num_levels):
     print("Denorm min/max:", float(ld.min()), float(ld.max()))
 
     l2 = ld.norm(dim=-1)
+    print(f"Denorm latents norm = {l2}")
     print("\nL2 norms (denorm) stats: mean/std/min/max:", float(l2.mean()), float(l2.std()), float(l2.min()), float(l2.max()))
-    print("\nExpected training L2 mean/std (what you expect):", "mean=11, std=1 (confirm these are the intended metrics)")
-
-    z_test = torch.randn(1000, ld.shape[1])
-    z_test_den = normalizer.denormalize(z_test)
-    print("\nTest mapping for std-normal inputs -> denorm mean/std (per-dim):", float(z_test_den.mean()), float(z_test_den.std()))
-    print("Test mapping L2 norm mean/std:", float(z_test_den.norm(dim=-1).mean()), float(z_test_den.norm(dim=-1).std()))
-
     if not torch.is_tensor(latents_denorm):
         raise RuntimeError("Sampler did not return a torch.Tensor. Got: %s" % type(latents_denorm))
-
-    assert latents_denorm.dim() == 2 and latents_denorm.shape[0] == patches_per_level, \
-        f"Expected latents shape [num_patches, latent_dim], got {latents_denorm.shape}"
 
     print(f"✓ Generated {latents_denorm.shape[0]} latents (shape: {latents_denorm.shape})")
 

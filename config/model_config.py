@@ -15,8 +15,7 @@ class DiffusionConfig:
     context_emb_dim: int = 128
     hidden_dims: list = field(default_factory=lambda: [256, 512, 512])
     num_res_blocks: int = 2
-    cond_dropout: float = 0.05
-    context_dropout: float = 0.1
+    cond_dropout: float = 0.15
 
 @dataclass
 class NormalizerConfig:

@@ -145,11 +145,16 @@ class Sampler:
             if num_patches == 1:
                 difficulty_schedule = [scalar_target]
             else:
-                power = 2.0
-                t = torch.linspace(0.0, 1.0, steps=num_patches)
-                curved = t ** power
-                difficulty_schedule = (curved * scalar_target).tolist()
-                print(f"  Difficulty ramp (power={power}): {difficulty_schedule[0]:.2f} → {difficulty_schedule[-1]:.2f}")
+                # Bell curve: 0 → peak at middle → 0
+                # Using sine wave from 0 to pi for smooth curve
+                import math
+                difficulty_schedule = []
+                for i in range(num_patches):
+                    # Map patch index to [0, pi] for sine curve
+                    t = i / (num_patches - 1)  # 0 to 1
+                    curve_value = math.sin(t * math.pi)  # 0 → 1 → 0
+                    difficulty_schedule.append(curve_value * scalar_target)
+                print(f"  Difficulty curve (bell): {difficulty_schedule[0]:.2f} → {max(difficulty_schedule):.2f} → {difficulty_schedule[-1]:.2f}")
 
 
         iterator = range(num_patches)

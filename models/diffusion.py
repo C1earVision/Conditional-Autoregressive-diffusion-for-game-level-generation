@@ -4,7 +4,7 @@ from typing import Optional
 from .embeddings import FourierDifficultyEmbedding, SinusoidalPositionalEmbedding
 
 class ResidualBlock(nn.Module):
-    def __init__(self, dim: int, time_emb_dim: int, dropout: float = 0.1):
+    def __init__(self, dim: int, time_emb_dim: int, dropout: float = 0.0):
         super().__init__()
         self.time_mlp = nn.Sequential(nn.Linear(time_emb_dim, dim), nn.SiLU())
         self.block = nn.Sequential(
@@ -25,7 +25,7 @@ class ResidualBlock(nn.Module):
 
 
 class MixingMLP(nn.Module):
-    def __init__(self, dim: int, hidden_scale: float = 1.0, dropout: float = 0.1):
+    def __init__(self, dim: int, hidden_scale: float = 1.0, dropout: float = 0.0):
         super().__init__()
         mid = int(dim * hidden_scale)
         mid = max(mid, dim)
@@ -52,7 +52,6 @@ class DiffusionUNet(nn.Module):
         hidden_dims: list = [256, 512, 512],
         num_res_blocks: int = 2,
         cond_dropout: float = 0.15,
-        context_dropout: float = 0.2,
     ):
         super().__init__()
         self.latent_dim = latent_dim
@@ -62,7 +61,6 @@ class DiffusionUNet(nn.Module):
         self.hidden_dims = hidden_dims
         self.num_res_blocks = num_res_blocks
         self.cond_dropout = cond_dropout
-        self.context_dropout = context_dropout
 
         self.time_embedding = SinusoidalPositionalEmbedding(time_emb_dim)
         self.time_mlp = nn.Sequential(
@@ -85,9 +83,13 @@ class DiffusionUNet(nn.Module):
 
         self.difficulty_embedding = FourierDifficultyEmbedding(
             embedding_dim=time_emb_dim,
-            num_frequencies=64
+            num_frequencies=128
         )
         self.null_diff_embedding = nn.Parameter(torch.randn(time_emb_dim) * 0.02)
+        self.null_context_embedding = nn.Parameter(torch.randn(time_emb_dim) * 0.02)
+        
+        # Learnable scale for difficulty embedding to strengthen its influence
+        self.diff_scale = nn.Parameter(torch.ones(1) * 2.0)
         
         self.output_scale = nn.Parameter(torch.ones(1))
 
@@ -195,15 +197,10 @@ class DiffusionUNet(nn.Module):
         prev_enc = prev_enc.reshape(batch, inferred_k, -1)
         k = inferred_k
 
-        # Generate context dropout mask (used for prev_enc, prev_diff_enc, and prev_lat_mean)
-        if self.training and self.context_dropout > 0:
-            context_drop_mask = (torch.rand(batch, device=device) < self.context_dropout)
+        if self.training and self.cond_dropout > 0:
+            cond_drop_mask = (torch.rand(batch, device=device) < self.cond_dropout)
         else:
-            context_drop_mask = None
-
-        if context_drop_mask is not None:
-            mask_3d = context_drop_mask.view(-1, 1, 1)
-            prev_enc = torch.where(mask_3d.expand_as(prev_enc), torch.zeros_like(prev_enc), prev_enc)
+            cond_drop_mask = None
 
         if previous_difficulties is None:
             previous_difficulties = torch.zeros((batch, k), device=device, dtype=dtype)
@@ -228,13 +225,13 @@ class DiffusionUNet(nn.Module):
         prev_diff_enc = self.prev_difficulty_mlp(prev_diff_flat)
         prev_diff_enc = prev_diff_enc.reshape(batch, k, -1)
 
-        # Apply context dropout to prev_diff_enc as well
-        if context_drop_mask is not None:
-            mask_3d = context_drop_mask.view(-1, 1, 1)
-            prev_diff_enc = torch.where(mask_3d.expand_as(prev_diff_enc), torch.zeros_like(prev_diff_enc), prev_diff_enc)
-
         per_prev = prev_enc + prev_diff_enc
         ctx_emb = per_prev.mean(dim=1)
+        
+        if cond_drop_mask is not None:
+            mask_2d = cond_drop_mask.view(-1, 1)
+            null_ctx = self.null_context_embedding.unsqueeze(0).expand(batch, -1)
+            ctx_emb = torch.where(mask_2d.expand_as(ctx_emb), null_ctx, ctx_emb)
 
         if target_difficulty is None:
             diff_emb = self.null_diff_embedding.unsqueeze(0).expand(batch, -1)
@@ -247,10 +244,10 @@ class DiffusionUNet(nn.Module):
 
             diff_emb = self.difficulty_embedding(target_difficulty)
 
-            if self.training and self.cond_dropout > 0:
-                drop_mask = (torch.rand(batch, device=device) < self.cond_dropout).unsqueeze(1)
+            if cond_drop_mask is not None:
+                mask_2d = cond_drop_mask.view(-1, 1)
                 null_emb = self.null_diff_embedding.unsqueeze(0).expand(batch, -1)
-                diff_emb = torch.where(drop_mask, null_emb, diff_emb)
+                diff_emb = torch.where(mask_2d, null_emb, diff_emb)
 
         if previous_latents.dim() == 2:
             prev_lat_for_mean = prev_flat.reshape(batch, k, self.latent_dim)
@@ -258,15 +255,14 @@ class DiffusionUNet(nn.Module):
             prev_lat_for_mean = previous_latents.reshape(batch, k, self.latent_dim)
         prev_lat_mean = prev_lat_for_mean.mean(dim=1)
 
-        # Apply context dropout to prev_lat_mean as well
-        if context_drop_mask is not None:
-            mask_2d = context_drop_mask.view(-1, 1)
+        if cond_drop_mask is not None:
+            mask_2d = cond_drop_mask.view(-1, 1)
             prev_lat_mean = torch.where(mask_2d.expand_as(prev_lat_mean), torch.zeros_like(prev_lat_mean), prev_lat_mean)
 
         h = torch.cat([x, prev_lat_mean], dim=-1)
         h = self.input_proj(h)
 
-        combined_emb = t_emb + ctx_emb + diff_emb
+        combined_emb = t_emb + ctx_emb + (diff_emb * self.diff_scale)
 
 
         skip_connections = []

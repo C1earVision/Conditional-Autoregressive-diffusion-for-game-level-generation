@@ -9,6 +9,45 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from config.training_config import DiffusionTrainingConfig
 diffusion_config = DiffusionTrainingConfig()
+
+
+class EMA:
+    
+    def __init__(self, model: nn.Module, decay: float = 0.9999):
+        self.decay = decay
+        self.shadow = {}
+        self.backup = {}
+        
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                self.shadow[name] = param.data.clone()
+    
+    @torch.no_grad()
+    def update(self, model: nn.Module):
+        for name, param in model.named_parameters():
+            if param.requires_grad and name in self.shadow:
+                self.shadow[name] = self.decay * self.shadow[name] + (1 - self.decay) * param.data
+    
+    def apply_shadow(self, model: nn.Module):
+        for name, param in model.named_parameters():
+            if param.requires_grad and name in self.shadow:
+                self.backup[name] = param.data.clone()
+                param.data = self.shadow[name]
+    
+    def restore(self, model: nn.Module):
+        for name, param in model.named_parameters():
+            if param.requires_grad and name in self.backup:
+                param.data = self.backup[name]
+        self.backup = {}
+    
+    def state_dict(self):
+        return {'shadow': self.shadow, 'decay': self.decay}
+    
+    def load_state_dict(self, state_dict):
+        self.shadow = state_dict['shadow']
+        self.decay = state_dict['decay']
+
+
 class DiffusionTrainer:
     def __init__(
         self,
@@ -29,8 +68,10 @@ class DiffusionTrainer:
             if isinstance(val, torch.Tensor):
                 setattr(self.schedule, name, val.to(device))
 
-        self.optimizer = optim.AdamW(self.unet.parameters(), lr=learning_rate, weight_decay=1e-3)
+        self.optimizer = optim.AdamW(self.unet.parameters(), lr=learning_rate, weight_decay=1e-4)
         self.criterion = nn.MSELoss()
+        
+        self.ema = EMA(self.unet, decay=0.9999)
 
         self.train_losses = []
         self.val_losses = []
@@ -41,6 +82,7 @@ class DiffusionTrainer:
         print(f"{'='*70}")
         print(f"  Device: {device}")
         print(f"  Condition dropout: {unet.cond_dropout*100:.0f}%")
+        print(f"  EMA decay: {self.ema.decay}")
         print(f"{'='*70}\n")
 
     def train_step(self, batch_data):
@@ -77,10 +119,15 @@ class DiffusionTrainer:
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.unet.parameters(), max_norm=1.0)
         self.optimizer.step()
+        
+        self.ema.update(self.unet)
 
         return {'total': loss.item(), 'noise': loss.item()}
 
-    def validate(self, val_loader: DataLoader) -> float:
+    def validate(self, val_loader: DataLoader, use_ema: bool = True) -> float:
+        if use_ema:
+            self.ema.apply_shadow(self.unet)
+        
         self.unet.eval()
         total_loss = 0.0
         num_batches = 0
@@ -115,6 +162,10 @@ class DiffusionTrainer:
                 num_batches += 1
 
         avg_loss = total_loss / max(1, num_batches)
+        
+        if use_ema:
+            self.ema.restore(self.unet)
+        
         return avg_loss
 
     def train(
@@ -137,6 +188,8 @@ class DiffusionTrainer:
         )
 
         best_val_loss = float('inf')
+        patience = 50
+        patience_counter = 0
 
         for epoch in range(num_epochs):
             epoch_loss = 0
@@ -160,8 +213,15 @@ class DiffusionTrainer:
                 self.val_losses.append(val_loss)
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
+                    patience_counter = 0
                     self.save_checkpoint(save_path.replace('.pth', '_best.pth'))
-                print(f"Epoch {epoch+1}/{num_epochs} | Train: {avg_epoch_loss:.4f} | Val: {val_loss:.4f}")
+                else:
+                    patience_counter += 1
+                print(f"Epoch {epoch+1}/{num_epochs} | Train: {avg_epoch_loss:.4f} | Val: {val_loss:.4f} | Patience: {patience_counter}/{patience}")
+                
+                if patience_counter >= patience:
+                    print(f"\n⚠ Early stopping triggered at epoch {epoch+1}! No improvement for {patience} epochs.")
+                    break
             else:
                 print(f"Epoch {epoch+1}/{num_epochs} | Train: {avg_epoch_loss:.4f}")
 
@@ -174,12 +234,20 @@ class DiffusionTrainer:
     def save_checkpoint(self, path: str):
         torch.save({
             'unet_state_dict': self.unet.state_dict(),
+            'ema_state_dict': self.ema.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
             'epoch_losses': self.epoch_losses,
             'val_losses': self.val_losses,
         }, path)
+        
+        ema_path = path.replace('.pth', '_ema.pth')
+        self.ema.apply_shadow(self.unet)
+        torch.save({'unet_state_dict': self.unet.state_dict()}, ema_path)
+        self.ema.restore(self.unet)
+        
         print(f"✓ Checkpoint saved to {path}")
+        print(f"✓ EMA weights saved to {ema_path}")
 
     def plot_losses(self, save_path: Optional[str] = None):
         plt.figure(figsize=(8, 5))
